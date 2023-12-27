@@ -123,7 +123,7 @@ suite("Extension Test Suite", () => {
   test("load merge settings", async () => {
     const s = loadSettings();
 
-    assert.deepStrictEqual(s, { ...prefs, merge: mergePrefs });
+    assert.deepStrictEqual(s, { ...prefs, targets: mergePrefs });
   });
 
   test("merge settings json", async () => {
@@ -251,7 +251,7 @@ suite("Extension Test Suite", () => {
     const obj: MergeObject = {
       sources: [
         {
-          path: "first.json",
+          path: "https://test.com/first.json",
           type: "json",
         },
         {
@@ -267,15 +267,11 @@ suite("Extension Test Suite", () => {
 
     sinon.replace(vscode.workspace, "openTextDocument", ((path: string) => {
       let r: any;
-      if (path === "first.json") {
-        r = {
-          getText: () => '{"first": 1}',
-        } as any;
-      } else if (path === "second.json") {
+      if (path === "second.json") {
         r = {
           getText: () => `{"second": 2} // comment`,
         } as any;
-      } else if (path === "out.txt") {
+      } else if (path === "out.json") {
         r = {
           getText: () => "",
           save: async () => true,
@@ -297,15 +293,20 @@ suite("Extension Test Suite", () => {
     const f2 = sinon.fake();
     sinon.replace(vscode.workspace, "applyEdit", f1);
     sinon.replace(vscode.WorkspaceEdit.prototype, "replace", f2);
+
+    sinon.replace(global, "fetch", async () => {
+      return {
+        text: async () => '{"web": 1}',
+        ok: true,
+      } as any;
+    });
+
     await inheritance.merge(obj);
 
     assert.ok(f1.calledOnce);
     assert.ok(f2.calledOnce);
 
-    assert.equal(f2.firstCall.args[0].path, "/out.txt");
-    assert.equal(
-      f2.firstCall.args[2],
-      '"\\"\\"{\\"first\\":1}\\"{\\\\\\"second\\\\\\": 2} // comment\\""'
-    );
+    assert.equal(f2.firstCall.args[0].path, "/out.json");
+    assert.equal(f2.firstCall.args[2], '{\n  "web": 1,\n  "second": 2}');
   });
 });
