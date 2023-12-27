@@ -1,13 +1,17 @@
 {
   "name": "preferences-inheritance",
   "displayName": "Preferences Inheritance",
-  "publisher": "iSplasher",
+  "publisher": "isplasher",
   "description": "Share common preferences across profiles, workspaces, projects through inheritance.",
   "version": "1.0.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/iSplasher"
+    "url": "https://github.com/iSplasher/preferences-inheritance.git"
   },
+  "sponsor": {
+    "url": "https://github.com/sponsors/isplasher"
+  },
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.60.0"
   },
