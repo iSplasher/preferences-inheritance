@@ -4,6 +4,10 @@
   "publisher": "iSplasher",
   "description": "Share common preferences across profiles, workspaces, projects through inheritance.",
   "version": "1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iSplasher"
+  },
   "engines": {
     "vscode": "^1.60.0"
   },
@@ -11,7 +15,8 @@
     "Other"
   ],
   "activationEvents": [
-    "*"
+    "*",
+    "onCommand:preferencesInheritance.mergePreferences"
   ],
   "main": "./dist/extension.js",
   "contributes": {
