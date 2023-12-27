@@ -1,71 +1,70 @@
-# preferences-inheritance README
+# Preferences Inheritance
 
-This is the README for your extension "preferences-inheritance". After writing up a brief description, we recommend including the following sections.
+VS Code extension that allows sharing common preferences across profiles, workspaces, and projects through inheritance. It even allows fetching preferences from the web.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+More precisely, this extension merges the given source of config files into a final config file that can be placed wherever you want.
 
-For example if there is an image subfolder under your extension project workspace:
+### Example Scenario
 
-\!\[feature X\]\(images/feature-x.png\)
+**Config:**
+```jsonc
+{
+    "targets": [
+        {
+            "sources": [
+                "https://url.to/online/root/settings.json",
+                {
+                    "path": "path/to/local/base/settings.json",
+                    "type": "jsonc"
+                },
+                "path/to/c++/project/settings.json"
+            ],
+            "output": "path/to/my/profile/workspace/.vscode/settings.json"
+        }
+    ],
+    "notifyOnMerge": true,
+    "mergeOnStartup": true,
+    "watchSources": true
+}
+```
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+This config can be placed at the workspace, .vscode, or profile level. The extension will merge the sources into a final output config that gets applied. This way, I keep my setting files DRY and can reuse or combine them across multiple projects and environments however I want.
+
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+The extension won't do anything before specifying `preferencesInheritance.targets`.
 
 ## Extension Settings
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
 This extension contributes the following settings:
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+* `preferencesInheritance.targets`:
 
-## Known Issues
+    Example:
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+    `output: { path: "out.json", type: "json" }` // for output, type can be [json, text, yaml]
+
+    or, just a string, will derive type from extension or default to json
+
+    `output: "out.json"`
+
+    `sources: [{ path: "test1.json", type: "jsonc" }, ...]` // for source, type can be [json, jsonc, text, yaml]
+    or, just a string, content is merged (or concatenated in case of `type=text`) first to last.
+
+    `sources: ["test1.json", { path: "test2.txt", type: "text"}, ...]`
+
+* `preferencesInheritance.mergeOnStartup`: Merge preferences on startup.
+* `preferencesInheritance.notifyOnMerge`: Notify when preferences are merged.
+* `preferencesInheritance.notifyOnNewWorkspace`: Notify about merges being active (if list of merge sources is non-empty) when a new workspace is opened.
+* `preferencesInheritance.watchSources`: Watch sources for changes and merge on change.
+* `preferencesInheritance.fetchContentCacheTime`: Time in seconds to cache fetched web content. Default is 60 * 5 seconds.
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
 
 ### 1.0.0
 
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+First release
