@@ -1,6 +1,6 @@
 # Preferences Inheritance
 
-VS Code extension that allows sharing common preferences across profiles, workspaces, and projects through inheritance. It even allows fetching preferences from the web.
+VS Code extension that allows sharing common preferences across profiles, workspaces, and projects through inheritance. It even allows fetching preferences from the web. Motivated by this [VS Code issue](https://github.com/microsoft/vscode/issues/188612)
 
 ## Features
 
@@ -10,16 +10,17 @@ More precisely, this extension merges the given source of config files into a fi
 
 **Config:**
 ```jsonc
+# .vscode/settings.json
 {
     "targets": [
         {
             "sources": [
-                "https://url.to/online/root/settings.json",
+                "https://url.to/online/root/settings.json", // can fetch from remote url
                 {
-                    "path": "path/to/local/base/settings.json",
+                    "path": "path/to/local/base/settings.json", // verbose, specify type
                     "type": "jsonc"
                 },
-                "path/to/c++/project/settings.json"
+                "path/to/c++/project/settings.json" // simple path, type inferred from file ext
             ],
             "output": "path/to/my/profile/workspace/.vscode/settings.json"
         }

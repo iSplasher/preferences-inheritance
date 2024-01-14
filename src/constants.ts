@@ -1,4 +1,4 @@
-import * as vscode from "vscode";
+import * as vscode from 'vscode';
 
 import type { SettingsInheritance } from "./inheritance";
 
@@ -23,6 +23,8 @@ export interface Settings {
   watchSources: boolean;
   fetchContentCacheTime: number;
 }
+
+export type SettingsKey = keyof Settings;
 
 export const documentType = [
   "jsonc",
@@ -56,6 +58,7 @@ export interface MergeObject {
 }
 
 export const EXT_NAME = "preferences-inheritance";
+export const EXT_NAME_HUMAN = "Preferences Inheritance";
 
 export const NoWorkspace = Symbol();
 export type WorkspaceRootPath = string | typeof NoWorkspace;

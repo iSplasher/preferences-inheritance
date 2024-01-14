@@ -4,7 +4,7 @@ import {
   constant,
   documentOutputType,
   documentType,
-  EXT_NAME,
+  EXT_NAME_HUMAN,
   JSONMappable,
   JSONType,
   MergeObject,
@@ -16,12 +16,19 @@ import {
 import { deactivate } from "./extension";
 import {
   basename,
-  camelCase,
+  CONFIG_SECTION,
   debounce,
   downloadDocument,
+  expandPath,
+  formatInputPath,
+  getSettingsKey,
+  getSettingsKeys,
+  isDeepEqual,
   isObject,
   isWebUrl,
+  logFmt,
   parseContent,
+  popForEach,
   showDocument,
   stringifyContent,
   stringifyMap,
@@ -36,14 +43,14 @@ function showError(msg: string, e?: any, warning?: boolean) {
   } else {
     cb(`${msg}: ${e?.message ?? e}`);
   }
-  console.error(`Settings Inheritance: ${msg}`);
+  console.error(`${EXT_NAME_HUMAN}: ${msg}`);
   if (e) {
     console.error(e);
   }
 }
 
 export function loadSettings() {
-  const cfg = vscode.workspace.getConfiguration(camelCase(EXT_NAME));
+  const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
   const defaultOutputType = "json" as const;
   const defaultSourceType = "jsonc" as const;
 
@@ -74,6 +81,18 @@ export function loadSettings() {
   }
 
   function validateMergePrefs(value: any): MergeObject[] {
+    const env = process.env;
+    const workspaceFolder =
+      vscode.workspace.workspaceFolders?.[0].uri.fsPath ?? "";
+
+    const fmtPath = (p: string) =>
+      formatInputPath(
+        expandPath(p, {
+          env,
+          workspaceFolder,
+        })
+      );
+
     let r: MergeObject[] = [];
 
     if (!Array.isArray(value)) {
@@ -94,20 +113,21 @@ export function loadSettings() {
         }
         if (typeof s === "string") {
           sources.push({
-            path: s,
+            path: fmtPath(s),
             type: defaultSourceType,
           });
-        } else if (s?.path) {
+        } else if (s?.path && typeof s.path === "string") {
           sources.push({
-            path: s.path,
+            path: fmtPath(s.path),
             type: getType(s.type, s.path, defaultSourceType, documentType),
           });
         }
       }
 
-      const oPath = typeof v?.output === "string" ? v?.output : v?.output?.path;
+      let oPath = typeof v?.output === "string" ? v?.output : v?.output?.path;
 
       if (oPath && sources.length) {
+        oPath = fmtPath(oPath);
         r.push({
           sources,
           output: {
@@ -126,19 +146,26 @@ export function loadSettings() {
     return r;
   }
 
-  constant.settings = {
-    targets: validateMergePrefs(cfg.get<MergeObject[]>("targets", [])),
-    notifyOnMerge: cfg.get<boolean>("notifyOnMerge", false),
-    notifyOnNewWorkspace: cfg.get<boolean>("notifyOnNewWorkspace", true),
-    mergeOnStartup: cfg.get<boolean>("mergeOnStartup", true),
+  const s = {
+    targets: validateMergePrefs(
+      cfg.get<MergeObject[]>(getSettingsKey("targets"), [])
+    ),
+    notifyOnMerge: cfg.get<boolean>(getSettingsKey("notifyOnMerge"), false),
+    notifyOnNewWorkspace: cfg.get<boolean>(
+      getSettingsKey("notifyOnNewWorkspace"),
+      true
+    ),
+    mergeOnStartup: cfg.get<boolean>(getSettingsKey("mergeOnStartup"), true),
     fetchContentCacheTime: cfg.get<number>(
-      "fetchContentCacheTime",
+      getSettingsKey("fetchContentCacheTime"),
       60 * 5 // 5 minutes
     ),
-    watchSources: cfg.get<boolean>("watchSources", true),
+    watchSources: cfg.get<boolean>(getSettingsKey("watchSources"), true),
   };
 
-  return constant.settings;
+  constant.settings = s;
+
+  return s;
 }
 
 export function getWorkspaceState<
@@ -172,12 +199,32 @@ export function setWorkspaceState<
 }
 
 export class SettingsInheritance {
-  _disposables: vscode.Disposable[];
-  _watchDisposables: vscode.Disposable[];
+  private disposables: {
+    commands: vscode.Disposable[];
+    other: vscode.Disposable[];
+    watch: vscode.Disposable[];
+    configChanged: vscode.Disposable | undefined;
+    workspaceChanged: vscode.Disposable | undefined;
+  } = {
+    commands: [],
+    other: [],
+    watch: [],
+    configChanged: undefined,
+    workspaceChanged: undefined,
+  };
 
-  constructor() {
-    this._disposables = [];
-    this._watchDisposables = [];
+  _restarting = false;
+
+  private addDisposable(
+    k: keyof typeof this.disposables,
+    d: vscode.Disposable
+  ) {
+    if (Array.isArray(this.disposables[k])) {
+      (this.disposables[k] as vscode.Disposable[]).push(d);
+    } else {
+      (this.disposables[k] as vscode.Disposable) = d;
+    }
+    constant.context.subscriptions.push(d);
   }
 
   private async saveOutput(path: string, content: string) {
@@ -287,7 +334,7 @@ export class SettingsInheritance {
               prefs instanceof Map && !prefs.size ? "" : JSON.stringify(prefs);
             const e =
               "Source with type='text' found when output has type='json'. Concatenating merge strategy will be used.";
-            console.warn("Preferences Inheritance: " + e);
+            console.warn(logFmt(e));
             showError(e, undefined, true);
           }
           prefsType = "text";
@@ -350,10 +397,7 @@ export class SettingsInheritance {
               constant.lastContentFetchTime = Date.now();
             } catch (e) {
               if (e === empty) {
-                console.warn(
-                  "Preferences Inheritance: Empty content from URL",
-                  source.path
-                );
+                console.warn(logFmt("Empty content from URL"), source.path);
                 constant.lastContentFetchTime += 1000;
               } else {
                 content.set(
@@ -368,26 +412,16 @@ export class SettingsInheritance {
 
           content.set(source, constant.contentCache[source.path]);
         } else {
-          let txt: string | undefined;
-
-          await vscode.workspace.openTextDocument(source.path).then(
-            (doc) => {
-              txt = doc.getText().trim();
-            },
-            (err) => {
-              console.error(err);
-              throw err;
-              return undefined;
-            }
+          const fileContent = await vscode.workspace.fs.readFile(
+            vscode.Uri.file(source.path)
           );
+
+          const txt = new TextDecoder().decode(fileContent).trim();
 
           if (txt) {
             content.set(source, txt);
           } else {
-            console.warn(
-              `Preferences Inheritance: Empty content or error from file`,
-              source.path
-            );
+            console.warn(logFmt("Empty content from file"), source.path);
           }
         }
       }
@@ -432,7 +466,7 @@ export class SettingsInheritance {
     if (constant.settings.notifyOnNewWorkspace) {
       if (!getWorkspaceState("notified", false)) {
         vscode.window.showInformationMessage(
-          `Preferences Inheritance is now active for this workspace.`
+          `${EXT_NAME_HUMAN} is now active for this workspace.`
         );
         notified = true;
         setWorkspaceState("notified", true);
@@ -477,16 +511,16 @@ export class SettingsInheritance {
           false
         );
 
-        this._watchDisposables.push(watcher.onDidChange(cb));
-        this._watchDisposables.push(watcher.onDidCreate(cb));
-        this._watchDisposables.push(watcher);
+        this.addDisposable("watch", watcher.onDidChange(cb));
+        this.addDisposable("watch", watcher.onDidCreate(cb));
+        this.addDisposable("watch", watcher);
       }
     }
   }
 
   async start() {
     loadSettings();
-    this._watchDisposables.forEach((d) => d.dispose());
+    popForEach(this.disposables.watch, (d) => d.dispose());
     for (const obj of constant.settings.targets) {
       await this.merge(obj);
       if (constant.settings.watchSources) {
@@ -496,28 +530,75 @@ export class SettingsInheritance {
   }
 
   async activate(context: vscode.ExtensionContext) {
+    constant.context = context;
     this.dispose();
 
-    context.subscriptions.push(
-      vscode.commands.registerCommand(
-        `${camelCase(EXT_NAME)}.mergePreferences`,
-        () => {
-          this.start();
-        }
-      )
+    const cmdKey = `${CONFIG_SECTION}.mergePreferences`;
+    this.addDisposable(
+      "commands",
+      vscode.commands.registerCommand(cmdKey, () => {
+        this.start();
+      })
     );
 
-    if (constant.settings.mergeOnStartup) {
+    if (constant.settings.mergeOnStartup || this._restarting) {
       await this.start();
     }
+
+    this.registerChangedConfig();
+    this.registerWorkspaceChanged();
   }
+
+  registerWorkspaceChanged() {
+    if (!this.disposables.workspaceChanged) {
+      this.disposables.workspaceChanged =
+        vscode.workspace.onDidChangeWorkspaceFolders((e) => {
+          this.restart();
+        });
+    }
+  }
+
+  registerChangedConfig() {
+    if (!this.disposables.configChanged) {
+      this.disposables.configChanged =
+        vscode.workspace.onDidChangeConfiguration(async (e) => {
+          if (e.affectsConfiguration(CONFIG_SECTION)) {
+            const old = constant.settings;
+            loadSettings();
+            if (
+              getSettingsKeys("targets").some((k) =>
+                isDeepEqual(
+                  old[k] as JSONType,
+                  constant.settings[k] as JSONType
+                )
+              )
+            ) {
+              this.restart();
+            }
+          }
+        });
+    }
+  }
+
+  async _restart() {
+    this.deactivate();
+    await this.activate(constant.context);
+    console.log(logFmt("Restarted"));
+  }
+
+  restart = debounce(this._restart, 1000);
 
   deactivate() {
     this.dispose();
   }
 
   dispose() {
-    this._disposables.forEach((d) => d.dispose());
-    this._watchDisposables.forEach((d) => d.dispose());
+    popForEach(this.disposables.commands, (d) => d.dispose());
+    popForEach(this.disposables.other, (d) => d.dispose());
+    popForEach(this.disposables.watch, (d) => d.dispose());
+    this.disposables.configChanged?.dispose();
+    this.disposables.configChanged = undefined;
+    this.disposables.workspaceChanged?.dispose();
+    this.disposables.workspaceChanged = undefined;
   }
 }

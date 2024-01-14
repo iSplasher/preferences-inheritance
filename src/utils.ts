@@ -6,10 +6,27 @@ import {
   constant,
   DocumentOutputType,
   DocumentType,
+  EXT_NAME,
+  EXT_NAME_HUMAN,
   JSONMappable,
   JSONMapType,
   JSONType,
-} from './constants';
+  SettingsKey,
+} from "./constants";
+
+export const CONFIG_SECTION = camelCase(EXT_NAME);
+
+export function logFmt(...args: string[]): string {
+  return `[${EXT_NAME_HUMAN}] ${args.join(" ")}`;
+}
+
+export function getSettingsKey(key: SettingsKey, include_section = false) {
+  return include_section ? `${CONFIG_SECTION}.${key}` : key;
+}
+
+export function getSettingsKeys(...args: SettingsKey[]) {
+  return args;
+}
 
 export function basename(path: string) {
   const parts = path.split(/[\/\\]/);
@@ -209,4 +226,62 @@ export function downloadDocument(url: URL, clean = true) {
       return text;
     });
   });
+}
+
+export function isDeepEqual(a: JSONType, b: JSONType) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export function popForEach<T>(arr: T[], fn: (item: T) => void) {
+  while (arr.length) {
+    fn(arr.pop() as T);
+  }
+}
+
+export function formatInputPath(p: string) {
+  if (isWebUrl(p)) {
+    return p;
+  }
+
+  // check absolute path
+  if (p.match(/^[a-zA-Z]:\\/) || p.match(/^[\\/]/)) {
+    return p;
+  }
+
+  // add ./ if relative path
+  if (!p.match(/^(\.\/|\.\\)/)) {
+    p = "./" + p;
+  }
+
+  return p.replace(/\\/g, "/");
+}
+
+// ${variable} or ${variable.subvariable}
+const VARIABLE_REGEXP = /\$\{((\w+)|(\w+.\w+))\}/g;
+type ExpandPathValues = {
+  workspaceFolder: string;
+  env: Record<string, string> | NodeJS.ProcessEnv;
+};
+
+export function expandPath(p: string, values: ExpandPathValues) {
+  const available: Omit<ExpandPathValues, "env"> = {
+    workspaceFolder: values.workspaceFolder,
+  };
+
+  for (const [variable, name] of [...p.matchAll(VARIABLE_REGEXP)].map((m) => [
+    m[0],
+    m[1],
+  ])) {
+    let replacement = "";
+    if (name.toLowerCase().startsWith("env.")) {
+      const v = name.slice("env.".length);
+      replacement = values.env[v] ?? "";
+    } else {
+      replacement = available[name as keyof typeof available] ?? "";
+    }
+
+    p = p.replace(variable, replacement);
+  }
+
+  return p;
 }
