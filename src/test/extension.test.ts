@@ -1,7 +1,6 @@
 import * as assert from "assert";
 import { after, afterEach, beforeEach } from "mocha";
 import sinon from "sinon";
-import { dir } from "tmp-promise";
 import * as vscode from "vscode";
 
 import pkg from "../../package.json";
@@ -9,8 +8,14 @@ import { MergeObject } from "../constants";
 import { deactivate } from "../extension";
 import { loadSettings, SettingsInheritance } from "../inheritance";
 
+let sinon1: sinon.SinonSandbox;
+
+function stringToUint8Array(str: string) {
+  return new TextEncoder().encode(str);
+}
+
 function setPreferences(prefs: Record<string, any>) {
-  sinon.replace(
+  sinon1.replace(
     vscode.workspace,
     "getConfiguration",
     () =>
@@ -28,13 +33,79 @@ function createThenable<T>(value: T) {
   };
 }
 
-suite("Extension Test Suite", () => {
+function mockReadFile(
+  sinon: sinon.SinonSandbox,
+  files: Record<string, string>
+) {
+  sinon.replaceGetter(vscode.workspace, "fs", () => {
+    return {
+      readFile: (uri: vscode.Uri) => {
+        let path = uri?.path ?? uri;
+        let r: any;
+
+        for (const [k, v] of Object.entries(files)) {
+          if (path?.endsWith(k)) {
+            r = v;
+            break;
+          }
+        }
+
+        if (!r) {
+          throw new Error(`Unknown path ${path}}`);
+        }
+
+        return createThenable(stringToUint8Array(r));
+      },
+    } as any;
+  });
+
+  sinon.replace(vscode.workspace, "openTextDocument", ((uri: vscode.Uri) => {
+    let path = uri?.path ?? uri;
+    let r: any;
+
+    for (const [k, v] of Object.entries(files)) {
+      if (path?.endsWith(k)) {
+        r = {
+          getText: () => v,
+        } as any;
+        break;
+      }
+    }
+
+    if (!r) {
+      throw new Error(`Unknown path ${path}}`);
+    }
+
+    r = {
+      ...r,
+      uri: vscode.Uri.file(path),
+      save: async () => true,
+      positionAt: () => new vscode.Position(0, 0),
+    };
+
+    return createThenable(r);
+  }) as any);
+}
+
+suite("Extension Test Suite >", () => {
   vscode.window.showInformationMessage("Start all tests.");
+
+  // sinon.replaceGetter(vscode.workspace, "workspaceFolders", () => [
+  //   {
+  //     uri: vscode.Uri.file(process.cwd()),
+  //     index: 0,
+  //     name: "test",
+  //   },
+  // ]);
+
+  sinon1 = sinon.createSandbox();
   after(() => {
+    sinon1.restore();
     vscode.window.showInformationMessage("All tests done!");
   });
 
   const ext = vscode.extensions.getExtension(`${pkg.publisher}.${pkg.name}`);
+  const extApi = (ext as any).exports;
 
   let context: vscode.ExtensionContext;
   let inheritance: SettingsInheritance;
@@ -67,21 +138,18 @@ suite("Extension Test Suite", () => {
   ];
 
   beforeEach(async () => {
-    const tmp = await dir({ unsafeCleanup: true });
-    tmpdir = tmp.path;
-    cleanup = tmp.cleanup;
+    // const tmp = await dir({ unsafeCleanup: true });
+    // tmpdir = tmp.path;
+    // cleanup = tmp.cleanup;
 
-    assert.ok(tmp);
+    // assert.ok(tmp);
 
     assert.ok(ext);
 
-    const ctx = await ext!.activate();
-    assert.ok(ctx);
-    context = ctx.context;
-    assert.ok(context);
-
     inheritance = new SettingsInheritance();
     assert.ok(inheritance);
+    context = extApi.context;
+    assert.ok(context);
 
     prefs = {
       targets: [
@@ -117,7 +185,7 @@ suite("Extension Test Suite", () => {
     if (tmpdir) {
       await cleanup();
     }
-    sinon.restore();
+    sinon1.restore();
   });
 
   test("load merge settings", async () => {
@@ -144,45 +212,23 @@ suite("Extension Test Suite", () => {
       },
     };
 
-    sinon.replace(vscode.workspace, "openTextDocument", ((path: string) => {
-      let r: any;
-      if (path === "first.json") {
-        r = {
-          getText: () => '{"first": 1}',
-        } as any;
-      } else if (path === "second.json") {
-        r = {
-          getText: () => `{"second": 2} // comment`,
-        } as any;
-      } else if (path === "out.json") {
-        r = {
-          getText: () => "",
-          save: async () => true,
-        } as any;
-      } else {
-        throw new Error("Unknown path");
-      }
+    mockReadFile(sinon1, {
+      "first.json": '{"first": 1}',
+      "second.json": `{"second": 2} // comment`,
+      "out.json": "",
+    });
 
-      r = {
-        ...r,
-        uri: vscode.Uri.file(path),
-        positionAt: () => new vscode.Position(0, 0),
-      };
-
-      return createThenable(r);
-    }) as any);
-
-    const f1 = sinon.fake.resolves(true);
-    const f2 = sinon.fake();
-    sinon.replace(vscode.workspace, "applyEdit", f1);
-    sinon.replace(vscode.WorkspaceEdit.prototype, "replace", f2);
+    const f1 = sinon1.fake.resolves(true);
+    const f2 = sinon1.fake();
+    sinon1.replace(vscode.workspace, "applyEdit", f1);
+    sinon1.replace(vscode.WorkspaceEdit.prototype, "replace", f2);
     await inheritance.merge(obj);
 
     assert.ok(f1.calledOnce);
     assert.ok(f2.calledOnce);
 
     assert.equal(f2.firstCall.args[0].path, "/out.json");
-    assert.equal(f2.firstCall.args[2], '{\n  "first": 1,\n  "second": 2}');
+    assert.equal(f2.firstCall.args[2], '{\n  "first": 1,\n  "second": 2\n}');
   });
 
   test("merge settings text", async () => {
@@ -203,38 +249,16 @@ suite("Extension Test Suite", () => {
       },
     };
 
-    sinon.replace(vscode.workspace, "openTextDocument", ((path: string) => {
-      let r: any;
-      if (path === "first.json") {
-        r = {
-          getText: () => '{"first": 1}',
-        } as any;
-      } else if (path === "second.json") {
-        r = {
-          getText: () => `{"second": 2} // comment`,
-        } as any;
-      } else if (path === "out.txt") {
-        r = {
-          getText: () => "",
-          save: async () => true,
-        } as any;
-      } else {
-        throw new Error("Unknown path");
-      }
+    mockReadFile(sinon1, {
+      "first.json": '{"first": 1}',
+      "second.json": `{"second": 2} // comment`,
+      "out.txt": "",
+    });
 
-      r = {
-        ...r,
-        uri: vscode.Uri.file(path),
-        positionAt: () => new vscode.Position(0, 0),
-      };
-
-      return createThenable(r);
-    }) as any);
-
-    const f1 = sinon.fake.resolves(true);
-    const f2 = sinon.fake();
-    sinon.replace(vscode.workspace, "applyEdit", f1);
-    sinon.replace(vscode.WorkspaceEdit.prototype, "replace", f2);
+    const f1 = sinon1.fake.resolves(true);
+    const f2 = sinon1.fake();
+    sinon1.replace(vscode.workspace, "applyEdit", f1);
+    sinon1.replace(vscode.WorkspaceEdit.prototype, "replace", f2);
     await inheritance.merge(obj);
 
     assert.ok(f1.calledOnce);
@@ -265,36 +289,17 @@ suite("Extension Test Suite", () => {
       },
     };
 
-    sinon.replace(vscode.workspace, "openTextDocument", ((path: string) => {
-      let r: any;
-      if (path === "second.json") {
-        r = {
-          getText: () => `{"second": 2} // comment`,
-        } as any;
-      } else if (path === "out.json") {
-        r = {
-          getText: () => "",
-          save: async () => true,
-        } as any;
-      } else {
-        throw new Error("Unknown path");
-      }
+    mockReadFile(sinon1, {
+      "second.json": `{"second": 2} // comment`,
+      "out.json": "",
+    });
 
-      r = {
-        ...r,
-        uri: vscode.Uri.file(path),
-        positionAt: () => new vscode.Position(0, 0),
-      };
+    const f1 = sinon1.fake.resolves(true);
+    const f2 = sinon1.fake();
+    sinon1.replace(vscode.workspace, "applyEdit", f1);
+    sinon1.replace(vscode.WorkspaceEdit.prototype, "replace", f2);
 
-      return createThenable(r);
-    }) as any);
-
-    const f1 = sinon.fake.resolves(true);
-    const f2 = sinon.fake();
-    sinon.replace(vscode.workspace, "applyEdit", f1);
-    sinon.replace(vscode.WorkspaceEdit.prototype, "replace", f2);
-
-    sinon.replace(global, "fetch", async () => {
+    sinon1.replace(global, "fetch", async () => {
       return {
         text: async () => '{"web": 1}',
         ok: true,
@@ -307,6 +312,73 @@ suite("Extension Test Suite", () => {
     assert.ok(f2.calledOnce);
 
     assert.equal(f2.firstCall.args[0].path, "/out.json");
-    assert.equal(f2.firstCall.args[2], '{\n  "web": 1,\n  "second": 2}');
+    assert.equal(f2.firstCall.args[2], '{\n  "web": 1,\n  "second": 2\n}');
+  });
+
+  test("merge content", async () => {
+    const sinon2 = sinon.createSandbox();
+
+    const testObjs: {
+      name: string;
+      sources: { path: string; type?: string; content: string }[];
+      output: { path: string; type?: string; content: string };
+    }[] = [
+      {
+        name: "simple json merge",
+        sources: [
+          {
+            path: "1.json",
+            content: '{"first": 1}',
+          },
+          {
+            path: "2.json",
+            content: `{"second": 2} // comment`,
+          },
+        ],
+        output: {
+          path: "out.json",
+          content: '{\n  "first": 1,\n  "second": 2\n}',
+        },
+      },
+    ];
+
+    afterEach(() => {
+      sinon2.restore();
+    });
+
+    for (const tObj of testObjs) {
+      test(tObj.name, async () => {
+        const obj: MergeObject = {
+          sources: tObj.sources.map((s) => ({
+            path: s.path,
+            type: (tObj.output.type as any) ?? "json",
+          })),
+          output: {
+            path: tObj.output.path,
+            type: (tObj.output.type as any) ?? "json",
+          },
+        };
+
+        mockReadFile(sinon2, {
+          ...tObj.sources.reduce((acc, cur) => {
+            acc[cur.path] = cur.content;
+            return acc;
+          }, {} as Record<string, string>),
+          [tObj.output.path]: "",
+        });
+
+        const f1 = sinon2.fake.resolves(true);
+        const f2 = sinon2.fake();
+        sinon2.replace(vscode.workspace, "applyEdit", f1);
+        sinon2.replace(vscode.WorkspaceEdit.prototype, "replace", f2);
+        await inheritance.merge(obj);
+
+        assert.ok(f1.calledOnce);
+        assert.ok(f2.calledOnce);
+
+        assert.equal(f2.firstCall.args[0].path, "/" + tObj.output.path);
+        assert.equal(f2.firstCall.args[2], tObj.output.content);
+      });
+    }
   });
 });

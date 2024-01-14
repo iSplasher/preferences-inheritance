@@ -78,4 +78,8 @@ export class constant {
       notified: boolean;
     }
   > = {} as any;
+
+  static isTest: boolean;
+  static isDev: boolean;
+  static isProd: boolean;
 }

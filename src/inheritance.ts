@@ -20,6 +20,7 @@ import {
   debounce,
   downloadDocument,
   expandPath,
+  fileURI,
   formatInputPath,
   getSettingsKey,
   getSettingsKeys,
@@ -413,7 +414,7 @@ export class SettingsInheritance {
           content.set(source, constant.contentCache[source.path]);
         } else {
           const fileContent = await vscode.workspace.fs.readFile(
-            vscode.Uri.file(source.path)
+            fileURI(source.path)
           );
 
           const txt = new TextDecoder().decode(fileContent).trim();
@@ -500,20 +501,27 @@ export class SettingsInheritance {
       if (isWebUrl(source.path)) {
         cb();
       } else {
-        const [name, head] = basename(source.path);
+        vscode.workspace.fs.stat(fileURI(source.path)).then(
+          (stat) => {
+            const [name, head] = basename(source.path);
 
-        const p = new vscode.RelativePattern(vscode.Uri.file(head), name);
+            const p = new vscode.RelativePattern(fileURI(head), name);
 
-        const watcher = vscode.workspace.createFileSystemWatcher(
-          p,
-          false,
-          false,
-          false
+            const watcher = vscode.workspace.createFileSystemWatcher(
+              p,
+              false,
+              false,
+              false
+            );
+
+            this.addDisposable("watch", watcher.onDidChange(cb));
+            this.addDisposable("watch", watcher.onDidCreate(cb));
+            this.addDisposable("watch", watcher);
+          },
+          (e) => {
+            showError(`Failed to watch merge source file ${source.path}`, e);
+          }
         );
-
-        this.addDisposable("watch", watcher.onDidChange(cb));
-        this.addDisposable("watch", watcher.onDidCreate(cb));
-        this.addDisposable("watch", watcher);
       }
     }
   }

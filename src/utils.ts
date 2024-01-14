@@ -149,7 +149,7 @@ export function stringifyMap(
         out += ",";
       }
     }
-    out += "}";
+    out += "\n}";
     return out;
   } else {
     return stringify(value);
@@ -238,19 +238,17 @@ export function popForEach<T>(arr: T[], fn: (item: T) => void) {
   }
 }
 
+export function isAbsolutePath(p: string) {
+  return p.match(/^[a-zA-Z]:\\/) || p.match(/^[\\/]/);
+}
+
 export function formatInputPath(p: string) {
   if (isWebUrl(p)) {
     return p;
   }
 
-  // check absolute path
-  if (p.match(/^[a-zA-Z]:\\/) || p.match(/^[\\/]/)) {
+  if (isAbsolutePath(p)) {
     return p;
-  }
-
-  // add ./ if relative path
-  if (!p.match(/^(\.\/|\.\\)/)) {
-    p = "./" + p;
   }
 
   return p.replace(/\\/g, "/");
@@ -284,4 +282,16 @@ export function expandPath(p: string, values: ExpandPathValues) {
   }
 
   return p;
+}
+
+export function fileURI(p: string) {
+  let root = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath ?? "";
+  if (!root && typeof process !== "undefined") {
+    root = process?.cwd?.() ?? "";
+  }
+
+  if (!isAbsolutePath(p) && root) {
+    p = vscode.Uri.joinPath(vscode.Uri.file(root), p).fsPath;
+  }
+  return vscode.Uri.file(p);
 }
