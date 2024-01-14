@@ -118,6 +118,7 @@
   },
   "scripts": {
     "vscode:prepublish": "yarn run package",
+    "vscode:publish": "yarn run package && vsce publish",
     "compile": "webpack",
     "watch": "webpack --watch",
     "package": "webpack --mode production --devtool hidden-source-map",

@@ -68,6 +68,4 @@ This extension contributes the following settings:
 ## Release Notes
 
 
-### 1.0.0
-
-First release
+See [CHANGELOG.md](./CHANGELOG.md)
