@@ -40,6 +40,8 @@ The extension won't do anything before specifying `preferencesInheritance.target
 
 ## Extension Settings
 
+All paths supports the following variables: `${workspaceFolder}`, `${env.some_environment_variable}`
+
 This extension contributes the following settings:
 
 * `preferencesInheritance.targets`:
