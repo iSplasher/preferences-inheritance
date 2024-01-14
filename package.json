@@ -98,7 +98,7 @@
           "type": "boolean",
           "default": false
         },
-        "preferencesInheritance.nnotifyOnNewWorkspace": {
+        "preferencesInheritance.notifyOnNewWorkspace": {
           "markdownDescription": "Notify about merges being active (if list of merge sources is non-empty) when a new workspace is opened.",
           "type": "boolean",
           "default": true
